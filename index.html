@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>Three.js – Part 1</title>
+  <title>Three.js</title>
   <style>
     body { margin: 0; overflow: hidden; }
 
@@ -15,40 +15,110 @@
       padding: 12px;
       font-family: system-ui, -apple-system, sans-serif;
       border-radius: 10px;
-      width: 320px;
+      width: 380px;
       font-size: 14px;
       box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+      user-select: none;
+      max-height: calc(100vh - 20px);
+      overflow: auto;
     }
 
-    #ui h3 { margin: 8px 0 6px; font-size: 14px; }
+    #ui h3 { margin: 10px 0 6px; font-size: 14px; }
     #ui label { display: block; margin: 6px 0 2px; }
     #ui .row { display: flex; gap: 10px; align-items: center; }
     #ui .row > * { flex: 1; }
     #ui input[type="range"] { width: 100%; }
+    #ui input[type="number"] { width: 100%; }
     #ui select { width: 100%; }
+
+    #ui button {
+      width: 100%;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(0,0,0,0.15);
+      background: #fff;
+      cursor: pointer;
+    }
+    #ui button:active { transform: translateY(1px); }
 
     #hint {
       opacity: 0.85;
       font-size: 12px;
       margin-top: 10px;
+      line-height: 1.35;
+    }
+
+    .colorsGrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+      align-items: end;
+    }
+    .colorsGrid .cell label {
+      margin: 0 0 4px;
+      font-size: 12px;
+      opacity: 0.9;
+    }
+    .colorsGrid .cell input[type="color"] {
+      width: 100%;
+      height: 34px;
+      padding: 0;
+      border: 1px solid rgba(0,0,0,0.15);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .grid3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+    .grid3 .cell label { margin: 0 0 4px; font-size: 12px; opacity: 0.9; }
+
+    #dropOverlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.55);
+      z-index: 9999;
+      color: #fff;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 18px;
+      text-align: center;
+      padding: 20px;
+    }
+    #dropOverlay.visible { display: flex; }
+    #dropOverlay .box {
+      border: 2px dashed rgba(255,255,255,0.8);
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 520px;
+      background: rgba(0,0,0,0.25);
     }
   </style>
 </head>
 <body>
+
   <div id="ui">
     <h3>Цвета фигур (без текстуры)</h3>
-
-    <label>Сфера</label>
-    <input type="color" id="sphereColor" value="#ff0000">
-
-    <label>Пирамида</label>
-    <input type="color" id="pyramidColor" value="#0077ff">
-
-    <label>Плоскость</label>
-    <input type="color" id="planeColor" value="#d3d3d3">
+    <div class="colorsGrid">
+      <div class="cell">
+        <label>Сфера</label>
+        <input type="color" id="sphereColor" value="#ff0000">
+      </div>
+      <div class="cell">
+        <label>Пирамида</label>
+        <input type="color" id="pyramidColor" value="#0077ff">
+      </div>
+      <div class="cell">
+        <label>Плоскость</label>
+        <input type="color" id="planeColor" value="#d3d3d3">
+      </div>
+    </div>
 
     <h3>Свет</h3>
-
     <div class="row">
       <label style="flex: 2;">
         <input type="checkbox" id="applyAllLights" checked>
@@ -56,7 +126,7 @@
       </label>
     </div>
 
-    <label>Выбрать источник (если “по отдельности”)</label>
+    <label>Выбрать источник</label>
     <select id="lightSelect" disabled>
       <option value="ambient">AmbientLight</option>
       <option value="directional">DirectionalLight</option>
@@ -64,13 +134,91 @@
     </select>
 
     <label>Интенсивность</label>
-    <input type="range" id="lightIntensity" min="0" max="5" step="0.1" value="1">
+    <input type="range" id="lightIntensity" min="0" max="5" step="0.1" value="2.5">
 
     <label>Цвет света</label>
-    <input type="color" id="lightColor" value="#ffffff">
+    <input type="color" id="lightColor" value="#fff0dd">
 
     <div id="hint">
       Куб использует текстуру и не имеет отдельного выбора цвета.
+    </div>
+
+    <h3>Загрузка моделей (glTF / GLB)</h3>
+    <label>Выбрать файл</label>
+    <input type="file" id="fileInput" accept=".glb,.gltf" />
+
+    <div id="hint">Или перетащи файл .glb/.gltf в окно (drag-n-drop).</div>
+
+    <h3>Выбор модели</h3>
+    <select id="modelSelect">
+      <option value="" selected>— нет загруженных моделей —</option>
+    </select>
+
+    <h3>Управление моделью</h3>
+
+    <label>
+      <input type="checkbox" id="showGizmo" checked>
+
+      Показывать TransformControls
+    </label>
+
+    <div class="row">
+      <button id="modeTranslate">Перемещение</button>
+      <button id="modeRotate">Поворот</button>
+      <button id="modeScale">Масштаб</button>
+    </div>
+
+    <div class="row">
+      <button id="resetModel">Сброс (позиция/поворот/масштаб)</button>
+    </div>
+
+    <h3>Параметры (числа)</h3>
+    <div class="grid3">
+      <div class="cell">
+        <label>Pos X</label>
+        <input type="number" id="posX" step="0.01" value="0">
+      </div>
+      <div class="cell">
+        <label>Pos Y</label>
+        <input type="number" id="posY" step="0.01" value="0">
+      </div>
+      <div class="cell">
+        <label>Pos Z</label>
+        <input type="number" id="posZ" step="0.01" value="0">
+      </div>
+
+      <div class="cell">
+        <label>Rot X (°)</label>
+        <input type="number" id="rotX" step="1" value="0">
+      </div>
+      <div class="cell">
+        <label>Rot Y (°)</label>
+        <input type="number" id="rotY" step="1" value="0">
+      </div>
+      <div class="cell">
+        <label>Rot Z (°)</label>
+        <input type="number" id="rotZ" step="1" value="0">
+      </div>
+
+      <div class="cell">
+        <label>Scale X</label>
+        <input type="number" id="sclX" step="0.01" value="1">
+      </div>
+      <div class="cell">
+        <label>Scale Y</label>
+        <input type="number" id="sclY" step="0.01" value="1">
+      </div>
+      <div class="cell">
+        <label>Scale Z</label>
+        <input type="number" id="sclZ" step="0.01" value="1">
+      </div>
+    </div>
+  </div>
+
+  <div id="dropOverlay">
+    <div class="box">
+      <div style="font-size: 22px; margin-bottom: 6px;">Отпусти файл для загрузки</div>
+      <div style="opacity: 0.9;">Поддерживается: .glb, .gltf</div>
     </div>
   </div>
 
