@@ -169,7 +169,8 @@
     </div>
 
     <div class="row">
-      <button id="resetModel">Сброс (позиция/поворот/масштаб)</button>
+        <button id="resetModel">Сброс (позиция/поворот/масштаб)</button>
+        <button id="deleteModel">Удалить модель</button>
     </div>
 
     <h3>Параметры (числа)</h3>
@@ -213,6 +214,19 @@
         <input type="number" id="sclZ" step="0.01" value="1">
       </div>
     </div>
+
+    <h3>GLSL эффекты</h3>
+
+<label>
+  <input type="checkbox" id="effectWaves" checked>
+  Волны на полу
+</label>
+
+<label>
+  <input type="checkbox" id="effectPulse" checked>
+  Пульсирующее кольцо
+</label>
+
   </div>
 
   <div id="dropOverlay">
