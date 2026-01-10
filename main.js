@@ -139,6 +139,153 @@ lightSelectEl.addEventListener('change', () => {
   if (L.color) lightColorEl.value = `#${L.color.getHexString()}`;
 });
 
+
+const shaderUniforms = {
+  uTime: { value: 0.0 },
+  uIntensity: { value: 1.0 }
+};
+
+const shaderVertex = `
+  varying vec2 vUv;
+  uniform float uTime;
+
+  void main() {
+    vUv = uv;
+
+    // лёгкая "волна" по поверхности
+    vec3 p = position;
+    float wave = sin((p.x * 2.0 + uTime * 1.2)) * 0.03
+               + cos((p.y * 2.5 + uTime * 1.0)) * 0.03;
+    p.z += wave;
+
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+  }
+`;
+
+const shaderFragment = `
+  precision highp float;
+
+  varying vec2 vUv;
+  uniform float uTime;
+  uniform float uIntensity;
+
+  // простая "мягкая" полосатая анимация
+  float stripe(vec2 uv, float t) {
+    float a = sin((uv.x * 10.0 + t) * 1.4);
+    float b = sin((uv.y * 12.0 - t) * 1.1);
+    return 0.5 + 0.5 * (a * b);
+  }
+
+  void main() {
+    vec2 uv = vUv;
+
+    // центрирование uv для красивого радиального затухания
+    vec2 c = uv - 0.5;
+    float r = length(c);
+
+    float t = uTime;
+    float s = stripe(uv, t);
+
+    // цвет "неон" (фиолетовый->голубой)
+    vec3 colA = vec3(0.65, 0.25, 0.95);
+    vec3 colB = vec3(0.15, 0.85, 1.00);
+    vec3 col = mix(colA, colB, s);
+
+    // мягкое затухание к краям
+    float fade = smoothstep(0.65, 0.15, r);
+
+    // итоговая альфа: эффект должен быть видим, но не перекрывать весь пол
+    float alpha = 0.35 * fade * (0.6 + 0.4 * s) * uIntensity;
+
+    gl_FragColor = vec4(col, alpha);
+  }
+`;
+
+const shaderMat = new THREE.ShaderMaterial({
+  uniforms: shaderUniforms,
+  vertexShader: shaderVertex,
+  fragmentShader: shaderFragment,
+  transparent: true,
+  depthWrite: false
+});
+
+// Плоскость с шейдером
+const shaderPlane = new THREE.Mesh(new THREE.PlaneGeometry(12, 12, 64, 64), shaderMat);
+shaderPlane.rotation.x = -Math.PI / 2;
+shaderPlane.position.y = 0.01;
+scene.add(shaderPlane);
+
+// UI: включение / выключение эффекта волн
+const effectWavesEl = document.getElementById('effectWaves');
+effectWavesEl.addEventListener('change', () => {
+  shaderPlane.visible = effectWavesEl.checked;
+},
+);
+
+const pulseUniforms = {
+  uTime: { value: 0.0 }
+};
+
+const pulseVertex = `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const pulseFragment = `
+  precision highp float;
+  varying vec2 vUv;
+  uniform float uTime;
+
+  void main() {
+    vec2 uv = vUv - 0.5;
+    float dist = length(uv);
+
+    // центр кольца и толщина (делаем толще и заметнее)
+    float radius = 0.30 + 0.04 * sin(uTime * 1.7);
+    float thickness = 0.08;
+
+    // основное кольцо (мягкие края)
+    float ring = smoothstep(radius + thickness, radius, dist) *
+                 smoothstep(radius - thickness, radius, dist);
+
+    // свечение вокруг
+    float glow = smoothstep(radius + 0.22, radius, dist) * 0.35;
+
+    float pulse = 0.6 + 0.4 * sin(uTime * 2.4);
+
+    vec3 col = vec3(0.10, 0.95, 0.65) * pulse; // яркий мятный
+    float alpha = clamp(ring + glow, 0.0, 1.0) * 0.9;
+
+    gl_FragColor = vec4(col, alpha);
+  }
+`;
+
+
+const pulseMaterial = new THREE.ShaderMaterial({
+  uniforms: pulseUniforms,
+  vertexShader: pulseVertex,
+  fragmentShader: pulseFragment,
+  transparent: true,
+  depthWrite: false,
+  side: THREE.DoubleSide
+});
+
+const pulsePlane = new THREE.Mesh(
+  new THREE.PlaneGeometry(8, 8),
+  pulseMaterial
+);
+pulsePlane.rotation.x = -Math.PI / 2;
+pulsePlane.position.y = 0.03;
+scene.add(pulsePlane);
+
+const effectPulseEl = document.getElementById('effectPulse');
+effectPulseEl.addEventListener('change', () => {
+  pulsePlane.visible = effectPulseEl.checked;
+});
+
 const transformControls = new TransformControls(camera, renderer.domElement);
 scene.add(transformControls);
 
@@ -151,21 +298,6 @@ const showGizmoEl = document.getElementById('showGizmo');
 transformControls.visible = false;
 transformControls.enabled = false;
 
-function updateGizmoState() {
-  const wantOn = showGizmoEl.checked && !!selectedModel;
-  transformControls.enabled = wantOn;
-  transformControls.visible = wantOn;
-
-  if (wantOn) {
-    transformControls.attach(selectedModel);
-  } else {
-    transformControls.detach();
-    controls.enabled = true;
-  }
-}
-showGizmoEl.addEventListener('change', updateGizmoState);
-
-// Загрузка моделей
 const gltfLoader = new GLTFLoader();
 const loadedModels = []; // { id, name, object3D, defaults }
 let selectedModel = null;
@@ -178,6 +310,7 @@ const modeRotate = document.getElementById('modeRotate');
 const modeScale = document.getElementById('modeScale');
 
 const resetModelBtn = document.getElementById('resetModel');
+const deleteModelBtn = document.getElementById('deleteModel');
 
 const posX = document.getElementById('posX');
 const posY = document.getElementById('posY');
@@ -205,8 +338,23 @@ function setInputsDisabled(disabled) {
   modeRotate.disabled = disabled;
   modeScale.disabled = disabled;
   resetModelBtn.disabled = disabled;
+  deleteModelBtn.disabled = disabled;
 }
 setInputsDisabled(true);
+
+function updateGizmoState() {
+  const wantOn = showGizmoEl.checked && !!selectedModel;
+  transformControls.enabled = wantOn;
+  transformControls.visible = wantOn;
+
+  if (wantOn) {
+    transformControls.attach(selectedModel);
+  } else {
+    transformControls.detach();
+    controls.enabled = true;
+  }
+}
+showGizmoEl.addEventListener('change', updateGizmoState);
 
 modeTranslate.addEventListener('click', () => {
   if (!transformControls.enabled) return;
@@ -266,7 +414,6 @@ for (const el of [posX,posY,posZ, rotX,rotY,rotZ, sclX,sclY,sclZ]) {
   });
 }
 
-// синхронизация при изменении гизмо
 transformControls.addEventListener('objectChange', () => {
   if (!selectedModel) return;
   syncInputsFromModel(selectedModel);
@@ -290,7 +437,6 @@ function prepareLoadedObject(root) {
     }
   });
 
-  // центрирование и постановка
   const box3 = new THREE.Box3().setFromObject(root);
   const size = new THREE.Vector3();
   const center = new THREE.Vector3();
@@ -301,6 +447,7 @@ function prepareLoadedObject(root) {
 
   const boxAfter = new THREE.Box3().setFromObject(root);
   root.position.y -= boxAfter.min.y;
+
   root.position.z = 3.0;
 
   const maxDim = Math.max(size.x, size.y, size.z);
@@ -340,6 +487,7 @@ function loadUserModelFile(file) {
       const id = makeId();
       loadedModels.push({ id, name: file.name, object3D: root, defaults });
       addModelToSelect(id, file.name);
+      // после автоселекта updateGizmoState вызовется из handler-а change
     },
     undefined,
     (err) => {
@@ -357,16 +505,14 @@ modelSelect.addEventListener('change', () => {
   if (!record) {
     selectedModel = null;
     setInputsDisabled(true);
-    updateGizmoState(); // скроет/отцепит гизмо
+    updateGizmoState();
     return;
   }
 
   selectedModel = record.object3D;
-
   setInputsDisabled(false);
   syncInputsFromModel(selectedModel);
 
-  // гизмо появляется только для пользовательской модели + если включили чекбокс
   updateGizmoState();
 });
 
@@ -385,13 +531,73 @@ resetModelBtn.addEventListener('click', () => {
   if (!record) return;
 
   const d = record.defaults;
-
   selectedModel.position.copy(d.position);
   selectedModel.rotation.copy(d.rotation);
   selectedModel.scale.copy(d.scale);
 
   syncInputsFromModel(selectedModel);
 });
+
+function disposeObject3D(obj) {
+  obj.traverse((child) => {
+    if (child.isMesh) {
+      if (child.geometry) child.geometry.dispose();
+
+      const mat = child.material;
+      if (Array.isArray(mat)) {
+        mat.forEach(disposeMaterial);
+      } else if (mat) {
+        disposeMaterial(mat);
+      }
+    }
+  });
+}
+
+function disposeMaterial(mat) {
+  for (const key in mat) {
+    const v = mat[key];
+    if (v && v.isTexture) v.dispose();
+  }
+  mat.dispose?.();
+}
+
+
+deleteModelBtn.addEventListener('click', () => {
+  const id = modelSelect.value;
+  if (!id) return;
+
+  const index = loadedModels.findIndex(m => m.id === id);
+  if (index === -1) return;
+
+  const record = loadedModels[index];
+
+  if (selectedModel === record.object3D) {
+    selectedModel = null;
+    transformControls.detach();
+    updateGizmoState();
+  }
+
+  scene.remove(record.object3D);
+
+  disposeObject3D(record.object3D);
+
+  loadedModels.splice(index, 1);
+
+  const opt = Array.from(modelSelect.options).find(o => o.value === id);
+  if (opt) opt.remove();
+
+  if (loadedModels.length > 0) {
+    const next = loadedModels[Math.max(0, index - 1)];
+    modelSelect.value = next.id;
+    modelSelect.dispatchEvent(new Event('change'));
+  } else {
+    modelSelect.value = '';
+    setInputsDisabled(true);
+    transformControls.detach();
+    if (typeof updateGizmoState === 'function') updateGizmoState();
+  }
+});
+
 
 const dropOverlay = document.getElementById('dropOverlay');
 let dragCounter = 0;
@@ -433,8 +639,16 @@ window.addEventListener('drop', (e) => {
   loadUserModelFile(file);
 });
 
+const clock = new THREE.Clock();
+
 function animate() {
   requestAnimationFrame(animate);
+
+  const dt = clock.getDelta();
+shaderUniforms.uTime.value += dt;
+pulseUniforms.uTime.value += dt;
+
+
   controls.update();
   renderer.render(scene, camera);
 }
